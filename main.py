@@ -27,14 +27,8 @@ def create_tables(conn):
         cur.execute('''
         CREATE TABLE IF NOT EXISTS Phone (
             id serial PRIMARY KEY,
+            person_id references Person(id),
             number varchar(25) UNIQUE NOT NULL
-        );
-            ''')
-        cur.execute('''
-        CREATE TABLE IF NOT EXISTS Person_phone (
-            person_id integer REFERENCES Person(id),
-            number_id integer REFERENCES Phone(id),
-            CONSTRAINT PersonPhone PRIMARY KEY (person_id, number_id)
         );
             ''')
         conn.commit()
@@ -188,22 +182,22 @@ def search(conn, first_name=None, last_name=None, email=None, number=None):
             print('Клиент не найден')
 
 
-with psycopg2.connect(database="", user="", password="") as conn:
+if __name__ == '__main__':
+    with psycopg2.connect(database="", user="", password="") as conn:
+        # drop_all(conn)
 
-    #drop_all(conn)
+        create_tables(conn)
+        add_person(conn, 'Ivan', 'Ivanov', 'ivan@mail.ru')
+        add_person(conn, 'Ivan', 'Semenov', 'semenov@mail.ru')
+        add_person(conn, 'Petr', 'Petrov', 'petrov2@mail.ru', '+79191234567')
+        add_phone(conn, 'ivan@mail.ru', '+79210987654')
 
-    create_tables(conn)
-    add_person(conn, 'Ivan', 'Ivanov', 'ivan@mail.ru')
-    add_person(conn, 'Ivan', 'Semenov', 'semenov@mail.ru')
-    add_person(conn, 'Petr', 'Petrov', 'petrov2@mail.ru', '+79191234567')
-    add_phone(conn, 'ivan@mail.ru', '+79210987654')
+        update(conn, 'petrov2@mail.ru', 'Petr', 'Пётр')
+        update(conn, 'petrov2@mail.ru', '+79191234567', '+7000')
+        delete_phone(conn, '+7000')
+        delete_person(conn, 'petrov2@mail.ru')
 
-    update(conn, 'petrov2@mail.ru', 'Petr', 'Пётр')
-    update(conn, 'petrov2@mail.ru', '+79191234567', '+7000')
-    delete_phone(conn, '+7000')
-    delete_person(conn, 'petrov2@mail.ru')
+        search(conn, first_name='Ivan')
+        search(conn, last_name='Petrov')
 
-    search(conn, first_name='Ivan')
-    search(conn, last_name='Petrov')
-
-conn.close()
+    conn.close()
