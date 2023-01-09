@@ -1,203 +1,191 @@
 import psycopg2
+from pprint import pprint
 
+def create_db(conn):
+    cur = conn.cursor()
+    cur.execute("""
+        DROP TABLE IF EXISTS phone_number;
+        DROP TABLE IF EXISTS client;
+    """)
 
-def drop_all(conn):
-    with conn.cursor() as cur:
-        cur.execute('''
-        DROP TABLE Person_phone;
-        ''')
-        cur.execute('''
-                    DROP TABLE Phone;
-                    ''')
-        cur.execute('''
-                    DROP TABLE Person;
-                    ''')
-        conn.commit()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS client (
+            id_client SERIAL primary key,
+            name varchar(15) not null,
+            surname varchar(15) not null,
+            mail varchar(255)
+            );
+    """)
 
-def create_tables(conn):
-    with conn.cursor() as cur:
-        cur.execute('''
-        CREATE TABLE IF NOT EXISTS Person (
-            id serial PRIMARY KEY,
-            first_name varchar(20) NOT NULL,
-            last_name varchar(50) NOT NULL,
-            email varchar(50) UNIQUE NOT NULL
-        );
-        ''')
-        cur.execute('''
-        CREATE TABLE IF NOT EXISTS Phone (
-            id serial PRIMARY KEY,
-            person_id references Person(id),
-            number varchar(25) UNIQUE NOT NULL
-        );
-            ''')
-        conn.commit()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS phone_number (
+            id_phone_number SERIAL primary key,
+            phone_number varchar(12),
+            id_client int not null references client(id_client)
+            );
+    """)
+    conn.commit()
+    cur.close()
 
-def add_person(conn, first_name, last_name, email, number=''):
-    with conn.cursor() as cur:
-        cur.execute('''
-        INSERT INTO Person(first_name, last_name, email)
+def add_client(conn, name=None, surname=None, mail=None):
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO client (name, surname, mail) 
         VALUES
-        (%s, %s, %s);
-        ''', (first_name, last_name, email))
-        if number:
-            cur.execute('''
-            INSERT INTO Phone (number)
-                VALUES
-                (%s);
-                ''', (number, ))
-            cur.execute('''
-            INSERT INTO Person_phone (person_id, number_id)
-                VALUES
-                ((SELECT id FROM Person WHERE email=%s), (SELECT id FROM Phone WHERE number=%s));
-                ''', (email, number))
-        conn.commit()
+            ('{0}', '{1}', '{2}');
+    """.format(name, surname, mail))
 
-def add_phone(conn, email, number):
-    with conn.cursor() as cur:
-        cur.execute('''
-                SELECT id FROM Person
-                 WHERE email = %s;
-                    ''', (email,))
-        response = cur.fetchone()
-        if response:
-            id = response[0]
-            cur.execute('''
-                            INSERT INTO Phone (number)
-                                VALUES
-                                (%s);
-                                ''', (number,))
-            cur.execute('''
-                    INSERT INTO Person_phone (person_id, number_id)
+    conn.commit()
+    cur.close()
+
+def add_now_client_phone(conn, find_name, *args):
+    """Эта функция нужна для того,чтобы добавить записи в поля таблицы 'phone_number'"""
+
+    cur = conn.cursor()
+
+    cur.execute("""
+        select c.id_client
+        from client c
+        where c.name = '{0}'
+    """.format(find_name))
+    try:
+        find_id = cur.fetchall()[0][0]
+
+        if len(args) >= 1:
+            for phone_number in args:
+                cur.execute("""
+                        INSERT INTO phone_number (phone_number, id_client)
                         VALUES
-                        (%s, (SELECT id FROM Phone WHERE number=%s));
-                        ''', (id, number))
-            conn.commit()
+                        ({0}, '{1}') RETURNING id_phone_number, phone_number, id_client
+                    """.format(phone_number, find_id))
         else:
-            print('Нет такого клиента')
+            print('Нет номера телефона')
+    except:
+        print('Ошибка при нахождении записи под таким индексом')
 
-def update(conn, email, old_data, new_data):
-    with conn.cursor() as cur:
-        cur.execute("SELECT * FROM Person LIMIT 0;")
-        colnames = [desc[0] for desc in cur.description]
-        cur.execute('''
-                SELECT Person.id, Person.first_name, Person.last_name,
-                       Person.email, Phone.id, Phone.number
-                  FROM Person
-                  JOIN Person_phone ON Person.id = Person_phone.person_id
-                  JOIN Phone ON Phone.id = Person_phone.number_id
-                 WHERE Person.email = %s;
-                ''', (email,))
-        all_data = cur.fetchall()[0]
-        table = zip(colnames[1:], all_data[1:-2])
-        if old_data[0] == '+' and old_data[1:].isdigit() \
-                              and old_data in all_data \
-                              and new_data[0] == '+' and new_data[1:].isdigit():
-            cur.execute('''
-                            UPDATE Phone
-                               SET number = %s
-                             WHERE id = %s;
-                                ''', (new_data, all_data[4]))
+    conn.commit()
+    cur.close()
 
-        else:
-            for column_name, value in table:
-                if value == old_data:
-                    cur.execute('''
-                                    UPDATE Person
-                                       SET {} = %s
-                                     WHERE id = %s;
-                                        '''.format(column_name), (new_data, all_data[0]))
+def update_client(conn, id, name=None, surname=None, mail=None):
+    cur = conn.cursor()
+
+    cur.execute("""
+        UPDATE client SET name='{0}', surname='{1}', mail='{2}' WHERE client.id_client = {3} ;
+    """.format(name, surname, mail, id))
+
+    conn.commit()
+    cur.close()
+
+def delete_client_phone(conn, find_phone_number):
+
+    cur = conn.cursor()
+
+    cur.execute("""
+            select pn.id_phone_number 
+            from phone_number pn 
+            where pn.phone_number = '{0}'
+        """.format(find_phone_number))
+    try:
+        find_id = cur.fetchall()[0][0]
+        cur.execute("""
+                DELETE
+                FROM phone_number pn
+                WHERE pn.id_phone_number = %s
+            """, (find_id,))
         conn.commit()
+        cur.close()
+    except:
+        print("Ошибка при нахождении записи в таблице 'phone_number', возможно неверно указано имя поля записи")
 
-def delete_phone(conn, number):
-    with conn.cursor() as cur:
-        cur.execute('''
-                SELECT id 
-                  FROM Phone
-                 WHERE number = %s;
-                    ''', (number,))
-        number_id = cur.fetchone()[0]
-        cur.execute('''
-                DELETE FROM Person_phone
-                WHERE number_id = %s;
-                ''', (number_id,))
-        cur.execute('''
-                    DELETE FROM Phone
-                    WHERE number = %s;
-                    ''', (number,))
+def delete_client(conn, find_client):
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+                    select pn.id_phone_number
+                    from phone_number pn  
+                    where pn.id_client = (select c.id_client
+                                          from client c
+                                          where c.name = '{0}')
+                """.format(find_client))
+        find_id = ()
+        if find_id is None:
+            for number in cur.fetchall():
+                find_id += number
+
+
+            cur.execute("""
+                delete
+                from phone_number pn
+                where pn.id_phone_number in {0}
+                    """.format(find_id))
+        cur.execute("""
+            select c.id_client
+            from client c
+            where c.name = '{0}'
+        """.format(find_client))
+        find_id_client = cur.fetchall()[0][0]
+        cur.execute("""
+            delete
+            from client c
+            where c.id_client = {0}
+        """.format(find_id_client))
         conn.commit()
+        cur.close()
+    except:
+        print("Ошибка при удалении клиента в таблице 'client'")
 
-def delete_person(conn, email):
-    with conn.cursor() as cur:
-        cur.execute('''
-                        SELECT Person.id, Phone.id
-                          FROM Person
-                          LEFT JOIN Person_phone ON Person.id = Person_phone.person_id
-                          LEFT JOIN Phone ON Phone.id = Person_phone.number_id
-                         WHERE email = %s;
-                            ''', (email,))
-        person_id, number_id = cur.fetchone()
-        if number_id:
-            cur.execute('''
-                            DELETE FROM Person_phone
-                            WHERE person_id = %s;
-                            ''', (person_id,))
-            cur.execute('''
-                            DELETE FROM Phone
-                            WHERE id = %s;
-                            ''', (number_id,))
-        cur.execute('''
-                        DELETE FROM Person
-                        WHERE id = %s;
-                        ''', (person_id,))
-        conn.commit()
-
-def search(conn, first_name=None, last_name=None, email=None, number=None):
-    if first_name:
-        column_and_value = ('Person.first_name', first_name)
-    elif last_name:
-        column_and_value = ('Person.last_name', last_name)
-    elif email:
-        column_and_value = ('Person.email', email)
-    elif number:
-        column_and_value = ('Phone.number', number)
+def find_client(conn, name=None, surname=None, mail=None, phone_number=None):
+    cur = conn.cursor()
+    info = None
+    if name is not None:
+        cur.execute("""
+            select c.name, c.surname, c.mail, pn.phone_number 
+            from client c join phone_number pn on pn.id_client = c.id_client 
+            where c.name = '{0}'
+        """.format(name))
+        info = cur.fetchall()
+    elif surname is not None:
+        cur.execute("""
+            select c.name, c.surname, c.mail, pn.phone_number 
+            from client c join phone_number pn on pn.id_client = c.id_client 
+            where c.surname = '{0}'
+        """.format(surname))
+        info = cur.fetchall()
+    elif mail is not None:
+        cur.execute("""
+            select c.name, c.surname, c.mail, pn.phone_number 
+            from client c join phone_number pn on pn.id_client = c.id_client 
+            where c.mail = '{0}'
+        """.format(surname))
+        info = cur.fetchall()
+    elif phone_number is not None:
+        cur.execute("""
+            select c.name, c.surname, c.mail, pn.phone_number 
+            from client c join phone_number pn on pn.id_client = c.id_client 
+            where pn.phone_number = '{0}'
+        """.format(surname))
+        info = cur.fetchall()
     else:
-        print('Укажите строго 1 значение')
-        return
-    with conn.cursor() as cur:
-        cur.execute('''
-                        SELECT Person.id, Person.first_name, Person.last_name, Person.email,
-                               Phone.number
-                          FROM Person
-                          LEFT JOIN Person_phone ON Person.id = Person_phone.person_id
-                          LEFT JOIN Phone ON Phone.id = Person_phone.number_id
-                         WHERE {} = %s;
-                            '''.format(column_and_value[0]), (column_and_value[1],))
-        response = cur.fetchall()
-        if response:
-            colnames = [desc[0] for desc in cur.description]
-            table = [str(i) for i in tuple(zip(colnames, *response))]
-            print('\n'.join(table))
-        else:
-            print('Клиент не найден')
+        print('Запись не найдена')
 
+    print(info)
+    conn.commit()
+    cur.close()
 
 if __name__ == '__main__':
-    with psycopg2.connect(database="", user="", password="") as conn:
-        # drop_all(conn)
 
-        create_tables(conn)
-        add_person(conn, 'Ivan', 'Ivanov', 'ivan@mail.ru')
-        add_person(conn, 'Ivan', 'Semenov', 'semenov@mail.ru')
-        add_person(conn, 'Petr', 'Petrov', 'petrov2@mail.ru', '+79191234567')
-        add_phone(conn, 'ivan@mail.ru', '+79210987654')
+    with psycopg2.connect(database="python_test", user='', password='') as conn:
+        create_db(conn)
 
-        update(conn, 'petrov2@mail.ru', 'Petr', 'Пётр')
-        update(conn, 'petrov2@mail.ru', '+79191234567', '+7000')
-        delete_phone(conn, '+7000')
-        delete_person(conn, 'petrov2@mail.ru')
+        add_client(conn, 'Bob', 'Booble', 'Bob64@gmail.com')
+        add_client(conn, 'Vova', 'Booble', 'Bob64@gmail.com')
 
-        search(conn, first_name='Ivan')
-        search(conn, last_name='Petrov')
+        update_client(conn, 2, 'igor', 'pop', 'pop@gmail.com')
 
-    conn.close()
+        add_now_client_phone(conn, 'igor', '89288880809', '89288881111')
+        add_now_client_phone(conn, 'Bob', '89288882222')
+
+        delete_client_phone(conn, '89288882222')
+        delete_client(conn, 'Bob')
+
+        find_client(conn)
